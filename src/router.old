@@ -1,0 +1,74 @@
+// #include <rosy/ipc_channel.h>
+
+
+// namespace rosy {
+
+// ipc_channel::ipc_channel(const char* ipc, inbox& inbox, outbox& outbox)
+// : addr_(ipc)
+// , inbox_ (&inbox)
+// , outbox_(&outbox)
+// {
+//     socket_ = nn_socket (AF_SP, NN_PAIR);
+//     assert (socket_ >= 0);
+//     assert (nn_bind (socket_, addr_) >= 0);
+//     //assert (nn_setsockopt (socket_, NN_SOL_SOCKET, NN_RCVTIMEO, &to, sizeof (to)) >= 0);
+
+//     inbox_->add_listener (this);
+// }
+
+// void* ipc_channel::run ()
+// {
+//     std::cout << "starting router...\n";
+//     broadcast_update ();
+
+//     while(1)
+//     {
+//         std::cout << "router EXEC\n";
+//         std::cout << "router WAIT\n";
+//         wait();
+//     }
+
+//     nn_shutdown (socket_, 0);
+//     return NULL;
+// }
+
+// void ipc_channel::on_recv(std::string msg)
+// {
+//     message::type type = static_cast<message::type> (msg[0]);
+//   //  std::cout << message::type_string[type] << "\n";
+
+//     switch(type)
+//     {
+//         case NET_SET:
+//         {
+//             message::net_set message;
+//             message.unpack(msg);
+
+//             std::cout << "NET_SET\n";
+//         }
+//         break;
+
+//         case NET_DROP:
+//         {
+//         }
+
+//         case JSON:
+//         {
+//         }
+//         break;
+
+//         default: std::cout << "unknown packet\n";
+//     }
+
+//     notify();
+// }
+
+
+
+// void ipc_channel::broadcast_update() const
+// {
+//     message::net_set update(inbox_->addr (), outbox_->addr ());
+//     outbox_->push (update.pack ());
+// }
+
+// }

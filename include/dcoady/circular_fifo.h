@@ -89,6 +89,21 @@ public:
         return *val;
     }
 
+    /** Returns element at front of queue
+        @return the element at front of queue
+    */
+    T front ()
+    {
+        pthread_mutex_lock(&dequeue_lock_);
+        if(size_ < 0)
+            throw std::runtime_error("front() invalid on an empty queue");
+
+        T val = *begin_;
+        pthread_mutex_unlock(&dequeue_lock_);
+
+        return val;
+    }
+
     /** Returns if queue is full
         @return if queue is full
     */

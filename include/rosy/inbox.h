@@ -1,15 +1,24 @@
 #ifndef __INCLUDE_ROSY_INBOX_H__
 #define __INCLUDE_ROSY_INBOX_H__
 
+
+#include <iostream>
+#include <cassert>
+
+#include <set>
+
 #include <nanomsg/nn.h>
 #include <nanomsg/pipeline.h>
-
-#include <cassert>
 
 #include <dcoady/thread.h>
 #include <dcoady/circular_fifo.h>
 
 namespace rosy {
+
+class inbox_event_listener : public dcoady::thread {
+public:
+    virtual void on_recv(std::string) = 0;
+};
 
 class inbox : public dcoady::thread {
 
@@ -18,67 +27,26 @@ class inbox : public dcoady::thread {
         int socket_;
         std::string addr_;
 
+        std::set<inbox_event_listener*> listeners_;
+
         const static int BACKLOG = 3;
 
     public:
-        inbox(const char* addr)
-        : socket_(-1)
-        , addr_(addr)
-        {
-            socket_ = nn_socket (AF_SP, NN_PULL);
-            assert (socket_ >= 0);
+        inbox(const char* addr);
 
-            assert (nn_bind (socket_, addr) >= 0);
+        std::string addr() const;
 
-            std::cout << "inbox ready\n";
-        }
+        void* run();
 
-        std::string addr() const
-        {
-            return addr_;
-        }
+        std::string pop ();
 
-        void* run()
-        {
-            while(true)
-            {
-                recv_message();
-            }
+        size_t size() const;
 
-            nn_shutdown(socket_, 0);
-            return NULL;
-        }
-
-        std::string pop ()
-        {
-            std::string obj;
-
-            if(queue_.size() > 0)
-            {
-                obj = queue_.dequeue();
-            }
-
-            return obj;
-        }
-
-        size_t size() const
-        {
-            return queue_.size();
-        }
+        void add_listener(inbox_event_listener const* listener);
 
 private:
 
-        void recv_message()
-        {
-            char* buffer = NULL;
-
-            int bytes = nn_recv (socket_, &buffer, NN_MSG, 0 /* NN_DONTWAIT */);
-            assert (bytes >= 0);
-
-         //  std::cout << std::string(buffer, bytes) << "\n";
-            queue_.enqueue(std::string(buffer, bytes));
-            nn_freemsg (buffer);
-        }
+        void recv_message();
 };
 
 }

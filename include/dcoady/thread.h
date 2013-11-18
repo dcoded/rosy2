@@ -46,6 +46,9 @@ public:
     /** Detatch the thread as a daemon */
     int detach();
 
+    void wait();
+    void notify();
+
     /** Returns an auto-generated thread id */
     pthread_t self() const;
 
@@ -62,6 +65,9 @@ public:
 private:
 
     pthread_t  id_; /**<POSIX thread object */
+    pthread_cond_t  cond_;
+    pthread_mutex_t mutex_;
+
     int        running_;/**<Running state of thread */
     int        detached_;/**<Detatched state of thread */
 };

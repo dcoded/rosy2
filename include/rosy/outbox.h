@@ -1,7 +1,7 @@
 #ifndef __INCLUDE_ROSY_OUTBOX_H__
 #define __INCLUDE_ROSY_OUTBOX_H__
 
-
+#include <iostream>
 #include <cassert>
 
 #include <nanomsg/nn.h>
@@ -15,115 +15,39 @@ namespace rosy {
 class outbox : public dcoady::thread {
 
     private:
+        enum state { IDLE, CONNECT, READY, SEND };
+        state state_;
+
         dcoady::circular_fifo<std::string, 1024> queue_;
         int   socket_;
         std::string addr_;
 
         const static int SEND_TIMEOUT = 5000;
         bool timeout_;
-        int client_;
+        int  client_;
 
     public:
-        outbox(char* addr)
-        : socket_(-1)
-        , addr_(addr)
-        , timeout_(false)
-        , client_(-1)
-        {
-            socket_ = nn_socket (AF_SP, NN_PUSH);
-            assert (socket_ >= 0);
+        outbox(char* addr);
 
-            int timeout = SEND_TIMEOUT;
-            nn_setsockopt(socket_, NN_SOL_SOCKET, NN_SNDTIMEO, &timeout, sizeof(timeout));
-            
-            connect();
-            
+        std::string addr() const;
 
-            std::cout << "outbox ready\n";
-        }
+        bool connect (const char* addr = 0);
 
-        std::string addr() const
-        {
-            return addr_;
-        }
+        void* run();
 
-        void update_endpoint(std::string endpoint)
-        {
-            addr_ = endpoint.c_str();
-        }
+        void push (std::string message);
 
-        bool connect (const char* addr = 0)
-        {
-            if(addr != 0)
-               addr_ = addr;
+        void operator()(std::string message);
 
-            if (client_ >= 0)
-            {
-                std::cout << "deleting old endpoint\n";
-                nn_shutdown(socket_, client_);
-            }
+        size_t size() const;
 
-            
-            std::cout << "connected()\n";
-            client_ = nn_connect (socket_, addr_.c_str ());
+        bool timeout (bool clear = false);
 
-            return (client_ >= 0);
-        }
-
-        void* run()
-        {
-            while(true)
-            {
-                while ( !queue_.empty ())
-                {
-                    send_message(queue_.dequeue ());
-                }
-            }
-
-            return NULL;
-        }
-
-        void push (std::string message)
-        {
-            queue_.enqueue(message);
-        }
-
-        void operator()(std::string message)
-        {
-            push (message);
-        }
-
-        size_t size() const
-        {
-            return queue_.size();
-        }
-
-        bool timeout (bool clear = false)
-        {
-            bool val = timeout_;
-
-            if (clear)
-                timeout_ = false;
-
-            return val;
-        }
+        bool ready ();
 
 private:
 
-        void flush_buffer ()
-        {
-
-        }
-
-        void send_message(std::string message)
-        {
-            int bytes = nn_send (socket_, message.data(), message.size(), 0 /* NN_DONTWAIT */ );
-            if (bytes != static_cast<int> (message.size ()))
-            {
-                queue_.enqueue(message);
-                timeout_ = true;
-            }
-        }
+        void send_message(std::string message);
 };
 
 }

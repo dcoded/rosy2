@@ -66,5 +66,15 @@ pthread_t thread::self() const
     return id_;
 }
 
+void thread::notify()
+{
+    pthread_cond_signal(&cond_);
+}
+
+void thread::wait()
+{
+    pthread_cond_wait(&cond_, &mutex_);   
+}
+
 
 };

@@ -1,50 +1,54 @@
 #include <iostream>
 #include <cstdlib>
 
-#include <rosy/inbox.h>
-#include <rosy/outbox.h>
+// #include <rosy/inbox.h>
+// #include <rosy/outbox.h>
+#include <rosy/tcp_client.h>
+#include <rosy/tcp_server.h>
 
-#include <rosy/topology.h>
-#include <rosy/message/publisher.h>
+//#include <rosy/topology.h>
+#include <rosy/ipc_broadcast.h>
+#include <rosy/netop.h>
 
-#include <rosy/message/message.h>
+// class foo : inbox_event_listener {
+// public:
+//     on_recv (std::string msg)
+//     {
+//         switch()
+//     }
+// };
 
 int main(int argc, char** argv)
 {
-    if(argc < 3)
+    if(argc < 4)
     {
-        std::cout << "Usage: " << argv[0] << " <server url> <remote url>" << std::endl;
+        std::cout << "Usage: " << argv[0] << " <server url> <remote url> <ipc url>" << std::endl;
         return -1;
     }
 
-	rosy::inbox inbox   (argv[1]);
-    rosy::outbox outbox (argv[2]);
+	//rosy::inbox inbox   (argv[1]);
+    //rosy::outbox outbox (argv[2]);
+    rosy::tcp_client client;
+    rosy::tcp_server server;
 
-    rosy::topology topology(&inbox, &outbox);
-
-    rosy::message::publisher<rosy::message::type_count> publisher(inbox);
-
-    
-    publisher.subscribe(static_cast<rosy::message::subscriber*>(&topology), rosy::message::NET_DROP);
-    publisher.subscribe(static_cast<rosy::message::subscriber*>(&topology), rosy::message::NET_SET);
+    rosy::netop netop(server, client);
 
 
+    //inbox.start ();
+    //outbox.start ();
+    server.start ();
+    server.endpoint (argv[1]);
 
-    inbox.start ();
-    outbox.start ();
-    topology.start ();
-    publisher.start ();
+    while(!server.ready ());
+    sleep(2);
 
-    std::string recv;
+    client.start ();
+    client.endpoint (argv[2]);
 
-    rosy::message::net_set join_req(argv[1], argv[2]);
-    outbox.push (join_req.pack());
+    netop.start ();
 
 
-
-    inbox.join ();
-    outbox.join ();
-
+    server.join ();
     return 0;
 }
 
