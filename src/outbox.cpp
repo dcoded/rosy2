@@ -54,7 +54,7 @@ void* outbox::run()
         while (state_ == READY && !queue_.empty ())
         {
             state_ = SEND;
-            send_message(queue_.dequeue ());
+            send_message(queue_.front ());
         }
 
         state_ = READY;
@@ -90,10 +90,10 @@ void outbox::send_message(std::string message)
     std::cout << "sending...\n";
     int bytes = nn_send (socket_, message.data(), message.size(), 0 /* NN_DONTWAIT */ );
     if (bytes != static_cast<int> (message.size ()))
-    {
-        queue_.enqueue(message);
         timeout_ = true;
-    }
+    
+    else queue_.dequeue ();
+
     std::cout << "done sending\n";
 }
 

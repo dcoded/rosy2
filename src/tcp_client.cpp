@@ -100,6 +100,7 @@ void tcp_client::write_ ()
         }
         else if (errno_failure ())
             error_ |= E_SEND;
+
         else
             flags_ |= F_AGAIN;
     }
@@ -152,7 +153,7 @@ void* tcp_client::run ()
             }
             break;
 
-            case WAIT: //std::cout << "CLIENT WAIT\n";
+            case WAIT: std::cout << "CLIENT WAIT\n";
             {
                 if (flags_ & F_RESET)
                     state_ = RESET;
@@ -182,8 +183,9 @@ void* tcp_client::run ()
             }
             break;
 
-            case ERROR: //std::cout << "CLIENT ERROR\n";
+            case ERROR: std::cout << "CLIENT ERROR\n";
             {
+                signal_ ();
                 state_ = RESET;
             }
             break;
@@ -198,6 +200,22 @@ void* tcp_client::run ()
 const std::string tcp_client::addr () const
 {
     return host_ + ":" + port_;
+}
+
+
+void tcp_client::add_listener(tcp_client_event_listener const* listener)
+{
+    tcp_client_event_listener* ear = const_cast<tcp_client_event_listener*>(listener);
+    listeners_.insert(ear);
+}
+
+
+void tcp_client::signal_ ()
+{
+    std::set<tcp_client_event_listener*>::iterator it;
+
+    for(it = listeners_.begin (); it != listeners_.end (); it++)
+        (*it)->on_timeout ();
 }
 
 }

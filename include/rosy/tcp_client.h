@@ -4,6 +4,7 @@
 #include <iostream>
 #include <cassert>
 
+#include <set>
 #include <cstdio>
 #include <memory.h>
 #include <sys/socket.h> // Needed for the socket functions
@@ -15,9 +16,15 @@
 
 namespace rosy {
 
+class tcp_client_event_listener {
+public:
+    virtual void on_timeout() = 0;
+};
+
 class tcp_client : public dcoady::thread {
 
     private:
+
         /* FSM State Variables */
         enum  state { INIT, RESET, CONNECT, WAIT, WRITE, ERROR };
         state state_;
@@ -38,10 +45,12 @@ class tcp_client : public dcoady::thread {
         int  socket_; // socket id
         int  client_; // connection id
 
-
         /* config params */
         std::string host_;
         std::string port_;
+
+        /* event listeners */
+        std::set<tcp_client_event_listener*> listeners_;
 
     public:
         tcp_client ();
@@ -50,11 +59,13 @@ class tcp_client : public dcoady::thread {
         void* run ();
 
         const std::string addr () const;
+        void  add_listener (tcp_client_event_listener const* listener);
 
     private:
-        void  reset_ ();
-        void  write_ ();
+        void  reset_   ();
+        void  write_   ();
         void  connect_ ();
+        void  signal_  ();
 
         bool  errno_failure ();
 

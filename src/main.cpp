@@ -39,7 +39,7 @@ int main(int argc, char** argv)
     server.start ();
     server.endpoint (argv[1]);
 
-    while(!server.ready ());
+   // while(!server.ready ());
     sleep(2);
 
     client.start ();

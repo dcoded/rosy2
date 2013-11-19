@@ -5,7 +5,8 @@ namespace rosy {
 
 
 netop::netop(tcp_server& server, tcp_client& client)
-: state_(INIT)
+: curr_state_(INIT)
+, next_state_(INIT)
 , client_(&client)
 , server_(&server)
 {
@@ -15,9 +16,47 @@ netop::netop(tcp_server& server, tcp_client& client)
 
     std::cout << "assigned uuid of " << uuid_ << "\n";
 
+    client_->add_listener (this);
     server_->add_listener (this);
 }
 
+void netop::on_timeout ()
+{
+    std::cout << "####################### FAULT DETECTED ############################\n";
+    next_state_ = RECOVER;
+    notify ();
+}
+
+
+void netop::advance_ ()
+{
+    switch(curr_state_)
+    {
+        case INIT     : next_state_ = JOIN;     break;
+        case JOIN     : next_state_ = READY;    break;
+        case ADD_PEER : next_state_ = SET_PEER; break;
+        case SET_PEER : next_state_ = READY;    break;
+        case DEL_PEER : next_state_ = READY;    break;
+        case UNKNOWN  : next_state_ = READY;    break;
+        case RECOVER  : next_state_ = READY;    break;
+        case READY    :
+        {
+            if(queue_.empty ())
+                wait ();
+
+            else switch (lite_message::unpack (queue_.front ()).type ())
+            {
+                case '1': next_state_ = ADD_PEER; break;
+                case '2': next_state_ = SET_PEER; break;
+                case '3': next_state_ = DEL_PEER; break;
+                default : next_state_ = UNKNOWN;  break;
+            }
+        }
+        break;
+        default:
+            std::cout << "advance_() reached default\n";
+    }
+}
 
 void* netop::run ()
 {
@@ -25,109 +64,95 @@ void* netop::run ()
 
     // if (client_->addr () == server_->addr ())
     //     state_ = JOINED;
-
     while(1)
     {
-        switch(state_)
-        {
-            case INIT: std::cout << "INIT\n";
-            {
-                std::cout << "ADDRESS: " << server_->addr () << "\t" << server_->addr ().size () << "\n";
-                peers_.insert (server_->addr ());
-                state_ = JOINING;
-            }
-            break;
+        curr_state_ = next_state_;
 
-            case JOINING: std::cout << "JOINING\n";
-            {
-                state_ = JOINED;
-                if (!queue_.empty ())
-                {
-                    lite_message msg = lite_message::unpack ( queue_.dequeue ());
-
-                    if (msg.data () == server_->addr ())
-                        state_ = JOINED;
-                    else
-                        state_ = JOINING;
-                }
-                
-                client_->write (lite_message::pack ('1', uuid_, uuid::zero (), server_->addr ()));
-                wait ();
-            }
-            break;
-
-            case JOINED: std::cout << "JOINED\n";
-            {
-                state_ = READY;
-                client_->write (lite_message::pack ('2', uuid_, uuid::zero (), server_->addr ()));
-                wait ();
-            }
-            break;
-
-            case READY: std::cout << "READY\n";
-            {
-                if (!queue_.empty ())
-                {
-                    lite_message msg = lite_message::unpack ( queue_.front ());
-
-                    if (msg.type () == '2' && msg.from () != uuid_)
-                    {
-                        state_ = ADD_PEER;
-                    }
-                    else
-                    {
-                        queue_.dequeue ();
-                        state_ = READY;
-                    }
-                }
-                else wait ();
-            }
-            break;
-
-            case ADD_PEER: std::cout << "ADD_PEER\n";
-            {
-                lite_message msg = lite_message::unpack ( queue_.front ());
-
-                std::string endpoint = msg.data ();
-
-                std::cout << "adding node " << endpoint << "\t" << endpoint.size () << "\n";
-                std::pair<std::set<std::string>::iterator,bool> res = peers_.insert (endpoint);
-
-                if (res.second)
-                    state_ = RELINK;
-                else
-                    state_ = READY;              
-            }
-            break;
-
-            case DEL_PEER: std::cout << "DEL_PEER\n";
-            {
-                lite_message msg = lite_message::unpack ( queue_.dequeue ());
-
-                std::cout << "removing node " << msg.pack () << "\n";
-                peers_.insert (msg.data ());
-
-                state_ = READY;
-
-                wait ();
-            }
-            break;
-
-            case RELINK: std::cout << "RELINK\n";
-            {
-                lite_message msg = lite_message::unpack ( queue_.dequeue ());
-
-                sleep(1);
-                relink_ ();
-                print_ ();
-                client_->write (lite_message::pack ('2', uuid_, msg.from (), server_->addr ()));
-                state_ = READY;
-            }
-            break;
-        }
+        advance_ ();
+        execute_ ();
     }
     return NULL;
 }
+
+
+void netop::execute_ ()
+{
+    switch(curr_state_)
+    {
+        case INIT: std::cout << "NETOP INIT\n";
+        break;
+
+        case JOIN: std::cout << "NETOP JOIN\n";
+        {
+            client_->write (lite_message::pack ('1', uuid_, uuid::zero (), server_->addr ()));
+            wait ();
+        }
+        break;
+
+        case READY: std::cout << "NETOP READY\n";
+        {
+            if (queue_.empty ())
+                wait ();  
+        }
+        break;
+
+        case ADD_PEER: std::cout << "ADD_PEER\n";
+        {
+            lite_message msg = lite_message::unpack (queue_.front ());
+
+            peers_.insert (msg.data ());
+            relink_ ();
+
+            if (server_->addr () < msg.data ())
+            {
+                std::set<std::string>::const_iterator it;
+                for (it = peers_.begin (); it != peers_.end (); it++)
+                    client_->write (lite_message::pack ('2', uuid_, uuid::zero (), *it));
+            }
+        }
+        break;
+
+        case SET_PEER: std::cout << "SET_PEER\n";
+        {
+            lite_message msg = lite_message::unpack (queue_.dequeue ());
+
+            peers_.insert (msg.data ());
+            relink_ ();
+            print_  ();
+        }
+        break;
+
+        case UNKNOWN: std::cout << "UNKNOWN\n";
+        {
+            std::cout << queue_.dequeue () << "\n";
+        }
+        break;
+
+        case RECOVER: std::cout << "RECOVER\n";
+        {
+            std::string fault = client_->addr ();
+
+            std::cout << "deleting " << fault << "\t" << fault.size () << "\n";
+            remove_ (fault.substr(0,15));
+            print_  ();
+            relink_ ();
+
+            client_->write (lite_message::pack ('3', uuid_, uuid::zero (), fault));
+        }
+        break;
+
+        case DEL_PEER: std::cout << "DEL_PEER\n";
+        {
+            lite_message msg = lite_message::unpack (queue_.dequeue ());
+
+            remove_ (msg.data ());
+            relink_ ();
+            print_  ();
+        }
+        break;
+    }
+}
+
 
 void netop::on_recv(std::string message)
 {
@@ -142,13 +167,10 @@ void netop::on_recv(std::string message)
               << "\t\t" << msg.data ()
               << "\n\n";
 
-    if (msg.recp () == uuid::zero () && msg.from () != uuid_)
-    {
+    if (msg.from () != uuid_)
         client_->write (message);
-        queue_.enqueue (message);
-        notify();
-    }
-    else if (msg.recp () == uuid_)
+    
+    if (msg.recp () == uuid::zero () || msg.recp () == uuid_)
     {
         queue_.enqueue (message);
         notify();
@@ -166,8 +188,36 @@ void netop::relink_ ()
     if (it == peers_.end   ())
         it =  peers_.begin ();
 
-    std::cout << "relink (): " << *it << "\n";
-    client_->endpoint (it->c_str ());
+    if (*it != client_->addr ())
+    {
+        std::cout << "relink (): " << *it << "\n";
+        client_->endpoint (it->c_str ());
+    }
+}
+
+
+std::string netop::next_ (std::string addr)
+{
+    std::set<std::string>::const_iterator it;
+
+    it = peers_.find (addr);
+    it++;
+
+    if (it == peers_.end   ())
+        it =  peers_.begin ();
+
+    return *it;
+}
+
+
+void netop::remove_ (std::string addr)
+{
+    std::set<std::string>::const_iterator it;
+
+    it = peers_.find (addr);
+
+    if (it != peers_.end ())
+        peers_.erase (it);
 }
 
 

@@ -14,11 +14,23 @@
 
 namespace rosy {
 
-class netop : public tcp_server_event_listener {
+class netop : public tcp_server_event_listener
+            , public tcp_client_event_listener {
     private:
 
-        enum  state { INIT, JOINING, JOINED, READY, ADD_PEER, DEL_PEER, RELINK };
-        state state_;
+        enum  state
+        {
+            INIT,
+            JOIN,
+            READY,
+            ADD_PEER,
+            SET_PEER,
+            DEL_PEER,
+            RECOVER,
+            UNKNOWN
+        };
+        state curr_state_,
+              next_state_;
 
         tcp_client* client_;
         tcp_server* server_;
@@ -36,11 +48,16 @@ class netop : public tcp_server_event_listener {
 
         void* run ();
         void  on_recv (std::string message);
+        void  on_timeout ();
 
     private:
+        void  advance_ ();
+        void  execute_ ();
 
         void  relink_ ();
+        void  remove_ (std::string addr);
         void  print_() const;
+        std::string next_ (std::string addr);
 };
 
 
