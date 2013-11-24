@@ -1,9 +1,9 @@
 PROJECT_NAME = $(shell basename $(CURDIR))
 
 CC=g++
-CC_FLAGS= -c -Wall -Wno-char-subscripts -Iinclude -I/usr/local/include
+CC_FLAGS= -c -Wall -Wno-char-subscripts -Iinclude
 
-LD_FLAGS=-L/usr/local/lib -lnanomsg -ljson_linux-gcc-4.7_libmt -lpthread -lmsgpack
+LD_FLAGS=-lpthread 
 
 CPP_FILES= $(wildcard src/*.cpp)
 OBJ_FILES=$(addprefix .bin/,$(notdir $(CPP_FILES:.cpp=.o)))
