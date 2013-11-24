@@ -1,0 +1,1 @@
+Rosy is a distributed pub/sub system designed with transparent fault detection/recovery and transparent server connectivity.  To join a node simply needs one address of a currently participating node.  Leaving a node requires no work and can simply stop forwarding messages, the network will kick non-responsive nodes automatically.
