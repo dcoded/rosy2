@@ -7,7 +7,7 @@
 #include "tcp_client.h"
 #include "tcp_server.h"
 
-#include "lite_message.h"
+#include "message.h"
 #include "uuid.h"
 
 #include <dcoady/circular_fifo.h>
@@ -18,17 +18,7 @@ class netop : public tcp_server_event_listener
             , public tcp_client_event_listener {
     private:
 
-        enum  state
-        {
-            INIT,
-            JOIN,
-            READY,
-            ADD_PEER,
-            SET_PEER,
-            DEL_PEER,
-            RECOVER,
-            UNKNOWN
-        };
+        enum  state { INIT, JOIN, READY, ADD_PEER, SET_PEER, DEL_PEER, RECOVER, UNKNOWN };
         state curr_state_,
               next_state_;
 

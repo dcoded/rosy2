@@ -2,23 +2,20 @@
 #define __INCLUDE_ROSY_tcp_server_H__
 
 #include <iostream>
+#include <cstdio>
 #include <cassert>
+#include <cerrno>
 
 #include <set>
-#include <vector>
+#include <list>
 #include <memory.h>
+#include <sstream>
 
 #include <fcntl.h>
-
-//#include <aio.h>
-
-//#include <signal.h>
-//#include <sys/signal.h>
-//#include <sys/types.h>
-#include <cstdio>
+#include <signal.h> // sigaction
+#include <sys/types.h>
 #include <sys/socket.h> // Needed for the socket functions
 #include <netdb.h>      // Needed for the socket functions
-#include <cerrno>
 
 #include <dcoady/thread.h>
 #include <dcoady/circular_fifo.h>
@@ -34,13 +31,16 @@ struct connection {
     int       socket;
     sockaddr  address;
     socklen_t len;
+
+    /* Thread safe FIFO queue */
+    dcoady::circular_fifo<std::string, 1024> queue;
 };
 
 class tcp_server : public dcoady::thread {
 
     private:
         /* FSM State Variables */
-        enum  state { INIT, RESET, BIND, ACCEPT, WAIT, READ, ERROR };
+        enum  state { INIT, RESET, BIND, ACCEPT, WAIT, READ, ERROR, BCAST };
         state state_;
       
         unsigned int flags_;
@@ -53,13 +53,10 @@ class tcp_server : public dcoady::thread {
                              E_ACPT  = 0x40, E_FCTL  = 0x80 };
 
 
-        /* Thread safe FIFO queue */
-        dcoady::circular_fifo<std::string, 1024> queue_;
-
         /* event listeners */
         std::set<tcp_server_event_listener*> listeners_;
 
-        std::vector<connection> clients_;
+        std::list<connection> clients_;
 
         /* Socket details */
         int  socket_; // socket id
@@ -69,8 +66,9 @@ class tcp_server : public dcoady::thread {
         std::string host_;
         std::string port_;
 
-        //struct sigaction sig_act_;
+        struct sigaction sig_act_;
         //struct aiocb     aio_req_;
+        static std::list<tcp_server*> instances_;
 
     public:
         tcp_server ();
@@ -80,20 +78,21 @@ class tcp_server : public dcoady::thread {
         void* run ();
 
         const std::string addr () const;
-        const size_t size() const;
-
         const bool ready () const;
 
     private:
-        void  reset_ ();
-        void  read_ ();
-        void  bind_ ();
-        void  accept_ ();
-        void  distribute_ (std::string message) const;
+        void reset_ ();
+        void read_ ();
+        void bind_ ();
+        void accept_ ();
+        void distribute_ (std::string message) const;
+        void broadcast_ ();
+        bool errno_failure_ () const;
 
-        //static void signal_ (int sig, siginfo_t *siginfo, void *context);
+        // bool is_http_ (const char* buffer) const;
+        // void http_stats_ (std::list<connection>::iterator& client);
 
-        bool  errno_failure ();
+        static void signal_ (int sig, siginfo_t *siginfo, void *context);
 };
 
 }

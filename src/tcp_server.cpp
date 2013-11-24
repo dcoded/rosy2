@@ -2,14 +2,15 @@
 
 namespace rosy {
 
+std::list<tcp_server*> tcp_server::instances_;
+
 
 tcp_server::tcp_server()
 {
-    
-    // /* setup signal handler */
-    // sigemptyset(&sig_act_.sa_mask);
-    // sig_act_.sa_flags     = SA_SIGINFO;
-    // sig_act_.sa_sigaction = &tcp_server::signal_;
+    /* setup signal handler */
+    sigemptyset(&sig_act_.sa_mask);
+    sig_act_.sa_flags     = SA_SIGINFO;
+    sig_act_.sa_sigaction = &tcp_server::signal_;
 
 
     // /* link request for signal handler */
@@ -18,10 +19,9 @@ tcp_server::tcp_server()
 
     // aio_req_.aio_sigevent.sigev_value.sival_ptr = this;
 
-    // /* map handler for SIGIO */
-    // sigaction(SIGIO, &sig_act_, NULL);
-
-    // std::cout << "Signal handler ready\n";
+    /* map handler for SIGIO */
+    assert (sigaction(SIGIO, &sig_act_, NULL) >= 0);
+    instances_.push_back (this);
 }
 
 void tcp_server::reset_ ()
@@ -50,7 +50,7 @@ void tcp_server::endpoint (const char* endpoint)
 void tcp_server::bind_ ()
 {
     int status;
-    static const int yes = 1;
+    const int yes = 1;
     struct addrinfo  host_info;      // The struct that getaddrinfo() fills up with data.
     struct addrinfo* host_info_list; // Pointer to the to the linked list of host_info's.
 
@@ -75,50 +75,36 @@ void tcp_server::bind_ ()
                       host_info_list->ai_socktype, 
                       host_info_list->ai_protocol);
 
-    freeaddrinfo(host_info_list);
 
     if (socket_ == -1)
-    {
-        perror("SERVER: ");
         error_ |= E_SOCK;
-    }
 
-
-    status = fcntl(socket_, F_SETFL, O_NONBLOCK);
-    
-    if (status != 0)
-    {
-        perror("SERVER: ");
+    if (fcntl (socket_, F_SETOWN, getpid ()) == -1)
         error_ |= E_FCTL;
-    }
+
+    
+    if (fcntl (socket_, F_SETFL, O_NONBLOCK | FASYNC) == -1)
+        error_ |= E_FCTL;
 
 
-    status = setsockopt(socket_, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(int));
+    status = setsockopt(socket_, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(yes));
 
     if (status != 0)
-    {
-        perror("SERVER: ");
         error_ |= E_OPTN;
-    }
 
 
     status = bind (socket_, host_info_list->ai_addr,
                             host_info_list->ai_addrlen);
 
     if (status != 0)
-    {
-        perror("SERVER: ");
         error_ |= E_BIND;
-    }
 
-
-    status = listen(socket_, 5);
     
-    if (status != 0)
-    {
-        perror("SERVER: ");
+    if (listen(socket_, 5) == -1)
         error_ |= E_LISN;
-    }
+
+
+    freeaddrinfo(host_info_list);
 }
 
 void tcp_server::accept_ ()
@@ -130,10 +116,22 @@ void tcp_server::accept_ ()
                                       SOCK_NONBLOCK);
 
     //std::cout << "accepted " << client.socket << "\n";
-    if(errno_failure())
+    if (errno_failure_ ())
+    {
+        std::cout << "errno = " << errno << "\n";
+        perror ("SERVER: ");
         error_ |= E_ACPT;
+    }
     else if (client.socket >= 0)
-        clients_.push_back(client);
+    {
+        if (fcntl (client.socket, F_SETOWN, getpid ()) == -1
+        ||  fcntl (client.socket, F_SETFL, O_NONBLOCK | FASYNC) == -1)
+        {
+            perror("CONNECTION: ");
+            error_ |= E_FCTL;
+        }
+        else clients_.push_back (client);
+    }
     //else
     //    flags_ |= F_AGAIN;
 }
@@ -143,22 +141,62 @@ void tcp_server::read_ ()
     static char buffer [1024];
     int         bytes_transferred;
 
-    std::vector<connection>::iterator it;
+    std::list<connection>::iterator it, it2;
     for(it = clients_.begin (); it != clients_.end (); it++)
     {
-        //std::cout << "Polling client " << it->socket << "\n";
+        //std::cout << "reading " << it->socket << "\n";
         bytes_transferred = recv (it->socket, buffer, 1024, 0);
 
         if (bytes_transferred > 0)
         {
-            //queue_.enqueue (std::string (buffer, bytes_transferred));
             distribute_ (std::string (buffer, bytes_transferred));
+            for (it2 = clients_.begin (); it2 != clients_.end (); it2++)
+                 it2->queue.enqueue (std::string (buffer, bytes_transferred));
         }
 
-        else if (errno_failure ())
+        else if (errno == EINTR)
+            flags_ |= F_AGAIN;
+
+        else if (bytes_transferred == 0 || errno_failure_ ())
         {
+            //std::cout << "closing " << it->socket << "\n";
             close (it->socket);
-            clients_.erase (it);
+            clients_.erase (it++);
+        }
+    }
+}
+
+void tcp_server::broadcast_ ()
+{
+    std::string msg;
+    std::list<connection>::iterator it;
+
+    for (it = clients_.begin (); it != clients_.end (); it++)
+    {
+        if (!it->queue.empty ())
+        {
+            msg = it->queue.front ();
+
+            int bytes = send (it->socket, msg.c_str (), msg.size (), MSG_DONTWAIT);
+
+            if (bytes == static_cast<int> (msg.size ()))
+            {
+                std::cout << "[" << it->socket << "] " << msg << "\n";
+                it->queue.dequeue ();
+            }
+
+            else if (bytes == 0 || errno_failure_ ())
+            {
+                //std::cout << "closing " << it->socket << "\n";
+                close (it->socket);
+                clients_.erase (it++);
+            }
+
+            else
+            {
+                //std::cout << "didnt send it...\n";
+            }
+
         }
     }
 }
@@ -166,18 +204,14 @@ void tcp_server::read_ ()
 void tcp_server::distribute_ (std::string message) const
 {
     std::set<tcp_server_event_listener*>::iterator it;
+
     for(it = listeners_.begin (); it != listeners_.end (); it++)
         (*it)->on_recv(message);
 }
 
-bool tcp_server::errno_failure ()
+bool tcp_server::errno_failure_ () const
 {
-    switch(errno)
-    {
-        case EAGAIN     : return false;
-        break;
-        default         : return true;
-    }
+    return (errno & ~EAGAIN) > 0;
 }
 
 
@@ -185,7 +219,6 @@ void* tcp_server::run ()
 {
     while(1)
     {
-        usleep(50);
         switch(state_)
         {
             case INIT:  std::cout << "SERVER INIT\n";
@@ -208,20 +241,14 @@ void* tcp_server::run ()
                 if (error_)
                     state_ = ERROR;
                 else
-                    state_ = ACCEPT;
+                    state_ = WAIT;
             }
             break;
 
-            case WAIT: std::cout << "SERVER WAIT\n";
+            case WAIT: //std::cout << "SERVER WAIT\n";
             {
-                // if (flags_ & F_SIGIN)
-                //     state_ = ACCEPT;
-                // else
-                // {
-                //     state_ = WAIT;
-                //     wait ();
-                // }
-
+                wait ();
+                state_ = ACCEPT;
             }
             break;
 
@@ -237,18 +264,27 @@ void* tcp_server::run ()
             }
             break;
 
-            case READ: //std::cout << "SERVER READ\n";
+            case READ: std::cout << "SERVER READ\n";
             {
                 read_ ();
 
                 if (flags_ & F_AGAIN)
+                {
                     state_ = READ;
-
+                    flags_ &= ~F_AGAIN;
+                }
                 else if (error_)
                     state_ = ERROR;
 
                 else
-                    state_ = ACCEPT;
+                    state_ = BCAST;
+            }
+            break;
+
+            case BCAST: std::cout << "SERVER BCAST\n";
+            {
+                broadcast_ ();
+                state_ = WAIT;
             }
             break;
 
@@ -256,6 +292,7 @@ void* tcp_server::run ()
             {
                 std::cout << "code = " << error_ << "\n";
                 state_ = RESET;
+                sleep(2);
             }
             break;
         }
@@ -289,11 +326,6 @@ void tcp_server::add_listener(tcp_server_event_listener const* listener)
 //     return msgstr;
 // }
 
-const size_t tcp_server::size() const
-{
-    return queue_.size ();
-}
-
 // void tcp_server::signal_ (int sig, siginfo_t *siginfo, void *context)
 // {
 //     tcp_server* this_ = reinterpret_cast<tcp_server*> (context);
@@ -302,7 +334,45 @@ const size_t tcp_server::size() const
 
 const bool tcp_server::ready () const
 {
-    return (state_ & (ACCEPT | READ)) != 0;
+    return (state_ & (WAIT | ACCEPT | READ)) != 0;
+}
+
+
+// bool tcp_server::is_http_ (const char* buffer) const
+// {
+//     return
+//     (
+//         strncmp ("GET",  buffer, 3) == 0
+//     ||  strncmp ("PUT",  buffer, 3) == 0
+//     ||  strncmp ("POST", buffer, 4) == 0
+//     ||  strncmp ("HEAD", buffer, 4) == 0
+//     );
+// }
+
+// void tcp_server::http_stats_ (std::list<connection>::iterator& client )
+// {
+
+//     std::stringstream ss;
+
+//     ss << "HTTP/1.x 200 OK"                         << "\r\n"
+//        << "Connection: close"                       << "\r\n"
+//        << "Content-Type: text/html; charset=UTF-8"  << "\r\n"
+//        << "Content-Length : " << addr ().size() + 7 << "\r\n"
+//        << "\r\n"
+//        << addr () << " is up!";
+
+//     send  (client->socket, ss.str().c_str (), ss.str().size (), 0);
+//     //close (client->socket);
+
+//     //clients_.erase (client);
+// }
+
+
+void tcp_server::signal_ (int sig, siginfo_t *siginfo, void *context)
+{
+    std::list<tcp_server*>::iterator it;
+    for(it = instances_.begin (); it != instances_.end (); it++)
+        (*it)->notify ();
 }
 
 

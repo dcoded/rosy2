@@ -5,11 +5,13 @@ namespace rosy {
 
 
 tcp_client::tcp_client()
+: socket_ (-1)
 {
 }
 
 void tcp_client::reset_ ()
 {
+    socket_ = -1;
     flags_ &= 0x0;
     error_ &= 0x0;
 
@@ -54,6 +56,11 @@ void tcp_client::connect_ ()
     // (translated into human readable text by the gai_gai_strerror function).   
     if (status != 0)
         error_ |= E_ADDR;
+
+
+    if (socket_ >= 0)
+        close (socket_);
+
 
     socket_ = socket (host_info_list->ai_family,
                       host_info_list->ai_socktype, 

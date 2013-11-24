@@ -44,7 +44,7 @@ void netop::advance_ ()
             if(queue_.empty ())
                 wait ();
 
-            else switch (lite_message::unpack (queue_.front ()).type ())
+            else switch (message::unpack (queue_.front ()).type ())
             {
                 case '1': next_state_ = ADD_PEER; break;
                 case '2': next_state_ = SET_PEER; break;
@@ -61,9 +61,6 @@ void netop::advance_ ()
 void* netop::run ()
 {
     std::cout << "[OK] netop initialized\n";
-
-    // if (client_->addr () == server_->addr ())
-    //     state_ = JOINED;
     while(1)
     {
         curr_state_ = next_state_;
@@ -84,7 +81,7 @@ void netop::execute_ ()
 
         case JOIN: std::cout << "NETOP JOIN\n";
         {
-            client_->write (lite_message::pack ('1', uuid_, uuid::zero (), server_->addr ()));
+            client_->write (message::pack ('1', uuid_, uuid::zero (), server_->addr ()));
             wait ();
         }
         break;
@@ -98,7 +95,7 @@ void netop::execute_ ()
 
         case ADD_PEER: std::cout << "ADD_PEER\n";
         {
-            lite_message msg = lite_message::unpack (queue_.front ());
+            message msg = message::unpack (queue_.front ());
 
             peers_.insert (msg.data ());
             relink_ ();
@@ -107,14 +104,14 @@ void netop::execute_ ()
             {
                 std::set<std::string>::const_iterator it;
                 for (it = peers_.begin (); it != peers_.end (); it++)
-                    client_->write (lite_message::pack ('2', uuid_, uuid::zero (), *it));
+                    client_->write (message::pack ('2', uuid_, uuid::zero (), *it));
             }
         }
         break;
 
         case SET_PEER: std::cout << "SET_PEER\n";
         {
-            lite_message msg = lite_message::unpack (queue_.dequeue ());
+            message msg = message::unpack (queue_.dequeue ());
 
             peers_.insert (msg.data ());
             relink_ ();
@@ -134,16 +131,16 @@ void netop::execute_ ()
 
             std::cout << "deleting " << fault << "\t" << fault.size () << "\n";
             remove_ (fault.substr(0,15));
-            print_  ();
             relink_ ();
+            print_  ();
 
-            client_->write (lite_message::pack ('3', uuid_, uuid::zero (), fault));
+            client_->write (message::pack ('3', uuid_, uuid::zero (), fault));
         }
         break;
 
         case DEL_PEER: std::cout << "DEL_PEER\n";
         {
-            lite_message msg = lite_message::unpack (queue_.dequeue ());
+            message msg = message::unpack (queue_.dequeue ());
 
             remove_ (msg.data ());
             relink_ ();
@@ -158,7 +155,7 @@ void netop::on_recv(std::string message)
 {
     static int mid = 0;
 
-    lite_message msg = lite_message::unpack (message);
+    rosy::message msg = message::unpack (message);
     std::cout << "message(" << mid++ << "):\n"
               << "\ttype: " << msg.type () << "\n"
               << "\tfrom: " << msg.from () << "\n"
@@ -188,11 +185,9 @@ void netop::relink_ ()
     if (it == peers_.end   ())
         it =  peers_.begin ();
 
+    //std::cout << "relink (): " << *it << "\n";
     if (*it != client_->addr ())
-    {
-        std::cout << "relink (): " << *it << "\n";
         client_->endpoint (it->c_str ());
-    }
 }
 
 
@@ -222,12 +217,12 @@ void netop::remove_ (std::string addr)
 
 
 
-void netop::print_() const
+void netop::print_ () const
 {
     std::cout << "Current Table:\n";
     std::set<std::string>::iterator it;
     int i = 0;
-    for(it = peers_.begin (); it != peers_.end (); it++, i++)
+    for (it = peers_.begin (); it != peers_.end (); it++, i++)
     {
         std::cout << "\t[" << i << "]\t" << *it << "\t" << it->size () << "\n";
     }
